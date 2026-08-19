@@ -23,16 +23,16 @@
 
     <div class="sec">
       <div class="row">
-        <button class="btn primary" id="power">◉ POWER ON</button>
-        <button class="btn" id="mute">MUTE</button>
+        <button class="btn primary" id="power" aria-pressed="false">◉ POWER ON</button>
+        <button class="btn" id="mute" aria-pressed="false">MUTE</button>
       </div>
       <div class="row">
         <button class="btn" id="rand">⚄ RANDOMISE</button>
-        <button class="btn" id="freeze">FREEZE</button>
+        <button class="btn" id="freeze" aria-pressed="false">FREEZE</button>
         <button class="btn" id="snap">↓ PNG</button>
       </div>
       <div class="row">
-        <button class="btn" id="gallery">GALLERY MODE</button>
+        <button class="btn" id="gallery" aria-pressed="false">GALLERY MODE</button>
       </div>
     </div>
 
@@ -44,8 +44,8 @@
     <div class="sec">
       <h2>Mode</h2>
       <div class="togglerow" style="margin-bottom:10px">
-        <button class="btn" data-mode="lissajous">LISSAJOUS</button>
-        <button class="btn" data-mode="harmonograph">HARMONOGRAPH</button>
+        <button class="btn" data-mode="lissajous" aria-pressed="false">LISSAJOUS</button>
+        <button class="btn" data-mode="harmonograph" aria-pressed="false">HARMONOGRAPH</button>
       </div>
       <h2>Ratio <span class="val" id="ratioVal">1 : 1</span></h2>
       <div class="chips" id="ratios"></div>
@@ -97,11 +97,11 @@
     <div class="sec">
       <h2>Phosphor</h2>
       <div class="row" style="align-items:center">
-        <div class="chips" id="colours" style="flex:1"></div>
+        <div class="chips" id="colours" role="group" aria-label="Phosphor colour"></div>
       </div>
       <div class="togglerow" style="margin-top:4px">
-        <button class="btn on" id="crt">CRT OVERLAY</button>
-        <button class="btn on" id="bloom">BLOOM</button>
+        <button class="btn on" id="crt" aria-pressed="true">CRT OVERLAY</button>
+        <button class="btn on" id="bloom" aria-pressed="true">BLOOM</button>
       </div>
     </div>
 

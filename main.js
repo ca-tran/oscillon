@@ -339,22 +339,39 @@ function buildOscUI(){
   });
 }
 
-// presets / ratios / colours
+// presets / ratios / colours — all rendered as real <button> elements so
+// they are keyboard-operable (native Enter/Space) with proper names/state,
+// rather than <div>s with only a click handler.
 function buildChips(){
   const pw=document.getElementById('presets');
-  PRESETS.forEach(p=>{const c=document.createElement('div');c.className='chip';c.textContent=p.n;
-    c.onclick=()=>{applyPreset(p);};pw.appendChild(c);});
+  PRESETS.forEach(p=>{
+    const c=document.createElement('button'); c.type='button'; c.className='chip'; c.textContent=p.n;
+    c.setAttribute('aria-label','Preset: '+p.n);
+    c.onclick=()=>{applyPreset(p);};
+    pw.appendChild(c);
+  });
   const rw=document.getElementById('ratios');
-  RATIOS.forEach(rt=>{const c=document.createElement('div');c.className='chip';c.textContent=rt.r;
-    c.dataset.r=rt.r;
+  RATIOS.forEach(rt=>{
+    const c=document.createElement('button'); c.type='button'; c.className='chip'; c.textContent=rt.r;
+    c.dataset.r=rt.r; c.setAttribute('aria-label','Ratio '+rt.r);
     c.onclick=()=>{ if(rt.x){ S.X[0].freq=rt.x; S.Y[0].freq=rt.y; }
-      buildOscUI(); markRatio(); updateAudio();};rw.appendChild(c);});
+      buildOscUI(); markRatio(); updateAudio();};
+    rw.appendChild(c);
+  });
   const cw=document.getElementById('colours');
-  PHOS.forEach((ph,i)=>{const s=document.createElement('div');s.className='swatch'+(i===0?' on':'');
-    s.style.background='rgb('+ph.edge.join(',')+')';s.title=ph.name;
-    s.onclick=()=>{S.phos=ph;document.documentElement.style.setProperty('--phos','rgb('+ph.core.join(',')+')');
-      cw.querySelectorAll('.swatch').forEach(x=>x.classList.remove('on'));s.classList.add('on');};
-    cw.appendChild(s);});
+  PHOS.forEach((ph,i)=>{
+    const s=document.createElement('button'); s.type='button'; s.className='swatch'+(i===0?' on':'');
+    s.style.background='rgb('+ph.edge.join(',')+')';
+    s.setAttribute('aria-label','Phosphor colour: '+ph.name);
+    s.setAttribute('aria-pressed', i===0?'true':'false');
+    s.onclick=()=>{
+      S.phos=ph;
+      document.documentElement.style.setProperty('--phos','rgb('+ph.core.join(',')+')');
+      cw.querySelectorAll('.swatch').forEach(x=>{x.classList.remove('on');x.setAttribute('aria-pressed','false');});
+      s.classList.add('on'); s.setAttribute('aria-pressed','true');
+    };
+    cw.appendChild(s);
+  });
 }
 function markRatio(){
   const fx=S.X[0].freq,fy=S.Y[0].freq,g=gcd(fx,fy);
@@ -375,7 +392,10 @@ function applyPreset(p){
   syncMode(); buildOscUI(); markRatio(); updateAudio();
 }
 function syncMode(){
-  document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('on',b.dataset.mode===S.mode));
+  document.querySelectorAll('[data-mode]').forEach(b=>{
+    const on=b.dataset.mode===S.mode;
+    b.classList.toggle('on',on); b.setAttribute('aria-pressed', on?'true':'false');
+  });
   document.getElementById('dampWrap').style.opacity=S.mode==='harmonograph'?1:.4;
 }
 
@@ -386,12 +406,13 @@ const link=(id,key,fmt,fx)=>{const el=document.getElementById(id);const lab=docu
 link('drift','drift'); link('rot','rot'); link('damp','damp'); link('pers','persist');
 link('modDepth','modDepth',null,syncAudioModulation);
 link('vol','vol',v=>Math.round(v*100)+'%',updateAudio);
-document.getElementById('modType').onchange=e=>{S.modType=e.target.value;syncAudioModulation();};
+document.getElementById('modType').onchange=e=>{S.modType=e.target.value;syncAudioModulation();updateReadout();};
 
 const powerBtn=document.getElementById('power');
 powerBtn.onclick=()=>{
   S.running=!S.running;
   powerBtn.classList.toggle('on',S.running);
+  powerBtn.setAttribute('aria-pressed', S.running?'true':'false');
   powerBtn.textContent=S.running?'◉ POWER ON':'○ POWER OFF';
   if(S.running){
     initAudio();
@@ -401,16 +422,20 @@ powerBtn.onclick=()=>{
 };
 const muteBtn=document.getElementById('mute');
 muteBtn.onclick=()=>{S.muted=!S.muted;muteBtn.classList.toggle('on',S.muted);
+  muteBtn.setAttribute('aria-pressed', S.muted?'true':'false');
   muteBtn.textContent=S.muted?'UNMUTE':'MUTE';updateAudio();};
 const freezeBtn=document.getElementById('freeze');
 freezeBtn.onclick=()=>{S.frozen=!S.frozen;freezeBtn.classList.toggle('on',S.frozen);
+  freezeBtn.setAttribute('aria-pressed', S.frozen?'true':'false');
   freezeBtn.textContent=S.frozen?'RESUME':'FREEZE';};
 document.getElementById('snap').onclick=()=>{
   const a=document.createElement('a');
   a.download='oscillon-'+Date.now()+'.png'; a.href=cv.toDataURL('image/png'); a.click();
 };
-document.getElementById('crt').onclick=e=>{S.crt=!S.crt;e.target.classList.toggle('on',S.crt);};
-document.getElementById('bloom').onclick=e=>{S.bloom=!S.bloom;e.target.classList.toggle('on',S.bloom);};
+document.getElementById('crt').onclick=e=>{S.crt=!S.crt;e.target.classList.toggle('on',S.crt);
+  e.target.setAttribute('aria-pressed', S.crt?'true':'false');};
+document.getElementById('bloom').onclick=e=>{S.bloom=!S.bloom;e.target.classList.toggle('on',S.bloom);
+  e.target.setAttribute('aria-pressed', S.bloom?'true':'false');};
 
 // randomise
 document.getElementById('rand').onclick=()=>{
@@ -431,6 +456,7 @@ let galleryTimer=null;
 const galleryTag=document.getElementById('gallery-tag');
 document.getElementById('gallery').onclick=e=>{
   S.gallery=!S.gallery; e.target.classList.add('amber'); e.target.classList.toggle('on',S.gallery);
+  e.target.setAttribute('aria-pressed', S.gallery?'true':'false');
   galleryTag.classList.toggle('on',S.gallery);
   if(S.gallery){ if(!S.running)powerBtn.click();
     cycleGallery(); galleryTimer=setInterval(cycleGallery, reduceMotion?12000:9000);
@@ -441,7 +467,10 @@ function cycleGallery(){
   applyPreset(p);
   S.phos=PHOS[Math.floor(Math.random()*PHOS.length)];
   document.documentElement.style.setProperty('--phos','rgb('+S.phos.core.join(',')+')');
-  document.querySelectorAll('#colours .swatch').forEach((x,i)=>x.classList.toggle('on',PHOS[i]===S.phos));
+  document.querySelectorAll('#colours .swatch').forEach((x,i)=>{
+    const on=PHOS[i]===S.phos;
+    x.classList.toggle('on',on); x.setAttribute('aria-pressed', on?'true':'false');
+  });
   if(!reduceMotion){ S.drift=0.1+Math.random()*0.3; S.rot=(Math.random()-0.5)*0.4;
     document.getElementById('drift').value=S.drift; document.getElementById('rot').value=S.rot; }
 }
