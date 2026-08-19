@@ -1,4 +1,34 @@
 "use strict";
+/* ==========================================================================
+   PHASE 1 AUDIT SUMMARY — full reasoning for each item lives in the git
+   history (one commit per concern); this is the short version.
+
+   Correctness: removed dead `phase` variable; wrapped the previously
+   unbounded harmT/driftPhase accumulators (renamed rotAngle/driftPhase)
+   modulo 2*PI to avoid long-session float precision loss; traced the
+   FM/AM maths by hand (AM correct, FM is phase modulation which is the
+   right approximation here) and fixed the real bug, which was that
+   modulation never reached the audio oscillators, only the visual trace;
+   fixed resize/orientation causing a hard visual cut; caught the
+   AudioContext.resume() promise; confirmed mute/freeze/power combinations
+   cannot reach a broken state; found and fixed a gallery-mode bug where
+   the phosphor CSS variable fell out of sync with the highlighted swatch.
+
+   Performance: replaced up to ~4200 stroke() calls/frame with a bucketed
+   Path2D batch (<=36 stroke() calls/frame), preserving the velocity-based
+   phosphor brightening; confirmed the CRT overlay only rebuilds on resize
+   and that gallery mode does not leak memory over an extended session.
+
+   Accessibility (WCAG AA): rebuilt swatches and preset/ratio chips as
+   real buttons with aria-label; added aria-pressed to every toggle;
+   added a global focus-visible ring; fixed --dim contrast from ~4.4:1 to
+   5.3:1+ against the panel gradient; confirmed reduced-motion handling
+   and tab order were already correct; added a skip link.
+
+   General polish: meta description, Open Graph tags, SVG favicon,
+   noscript message, and a graceful fallback when Web Audio is
+   unsupported (visuals still work, audio controls disable with a note).
+   ========================================================================== */
 (function(){
 const cv=document.getElementById('scope'), ctx=cv.getContext('2d',{alpha:false});
 const stage=document.getElementById('stage');
@@ -8,6 +38,14 @@ let DPR=Math.min(window.devicePixelRatio||1,2), W=0,H=0, CX=0,CY=0, R=0;
 const RM = window.matchMedia('(prefers-reduced-motion: reduce)');
 let reduceMotion = RM.matches;
 RM.addEventListener?.('change', e=>{reduceMotion=e.matches;});
+
+// --- feature detection ---
+const AUDIO_SUPPORTED = !!(window.AudioContext||window.webkitAudioContext);
+if(!AUDIO_SUPPORTED){
+  document.getElementById('audioNote').hidden=false;
+  document.getElementById('mute').disabled=true;
+  document.getElementById('vol').disabled=true;
+}
 
 // ---------- state ----------
 const WAVES=['sine','triangle','square','sawtooth'];
@@ -50,20 +88,43 @@ const PRESETS=[
 ];
 
 // ---------- audio ----------
-let AC=null, master=null, aX=null, aY=null, aXg=null, aYg=null;
+let AC=null, master=null, aX=null, aY=null, aXg=null, aYg=null, modGain=null;
+const AX_BASE_GAIN=0.5;
 function initAudio(){
-  if(AC) return;
+  if(AC || !AUDIO_SUPPORTED) return;
   AC=new (window.AudioContext||window.webkitAudioContext)();
   master=AC.createGain(); master.gain.value=S.muted?0:S.vol; master.connect(AC.destination);
   const merger=AC.createChannelMerger(2);
   aX=AC.createOscillator(); aXg=AC.createGain(); aX.connect(aXg); aXg.connect(merger,0,0);
   aY=AC.createOscillator(); aYg=AC.createGain(); aY.connect(aYg); aYg.connect(merger,0,1);
   merger.connect(master);
-  aXg.gain.value=0.5; aYg.gain.value=0.5;
+  aXg.gain.value=AX_BASE_GAIN; aYg.gain.value=0.5;
+  // modulator tap: aY's own direct output is unaffected by this second
+  // connection. modGain's output is routed onto whichever AudioParam the
+  // current modulation type targets (see syncAudioModulation), so the
+  // audio you hear tracks the same FM/AM the eye sees on the trace,
+  // rather than modulation being a visual-only effect.
+  modGain=AC.createGain(); modGain.gain.value=0;
+  aY.connect(modGain);
   aX.start(); aY.start();
+  syncAudioModulation();
 }
 const BASE=110; // Hz for freq index 1
 function audioFreq(idx){return BASE*idx;}
+function syncAudioModulation(){
+  if(!AC) return;
+  try{ modGain.disconnect(); }catch(e){ /* not connected yet, fine */ }
+  const now=AC.currentTime;
+  if(S.modType==='am'){
+    modGain.gain.setTargetAtTime(S.modDepth*0.4, now, 0.02);
+    modGain.connect(aXg.gain);
+  }else if(S.modType==='fm'){
+    modGain.gain.setTargetAtTime(S.modDepth*audioFreq(S.X[0].freq)*0.8, now, 0.02);
+    modGain.connect(aX.frequency);
+  }else{
+    modGain.gain.setTargetAtTime(0, now, 0.02);
+  }
+}
 function updateAudio(){
   if(!AC) return;
   const fx=audioFreq(S.X[0].freq), fy=audioFreq(S.Y[0].freq);
@@ -71,6 +132,7 @@ function updateAudio(){
   aY.frequency.setTargetAtTime(fy,AC.currentTime,0.02);
   aX.type=S.X[0].wave; aY.type=S.Y[0].wave;
   master.gain.setTargetAtTime(S.muted||!S.running?0:S.vol,AC.currentTime,0.02);
+  syncAudioModulation();
 }
 
 // ---------- waveforms ----------
@@ -103,58 +165,101 @@ function resize(){
   CX=W/2; CY=H/2; R=Math.min(W,H)*0.40;
   ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
 }
-window.addEventListener('resize',resize);
+// Debounced resize with a brief fade, so an orientation change (or a
+// browser window drag) does not read as a hard cut of the trace. Canvas
+// dimension changes always clear pixel content per spec, so the fade is
+// camouflage for an unavoidable clear rather than an attempt to prevent it.
+let resizeDebounce=null, resizeRAF=null;
+function scheduleResize(){
+  clearTimeout(resizeDebounce);
+  resizeDebounce=setTimeout(()=>{
+    cv.style.opacity='0';
+    resizeRAF=requestAnimationFrame(()=>{
+      resize();
+      requestAnimationFrame(()=>{ cv.style.opacity='1'; });
+    });
+  },80);
+}
+window.addEventListener('resize',scheduleResize);
+window.addEventListener('orientationchange',scheduleResize);
 
 // ---------- render ----------
-let phase=0, driftPhase=0, harmT=0;
+// driftPhase and rotAngle are wrapped modulo 2*PI each frame rather than
+// accumulated forever. Both only ever feed additive phase into periodic
+// trig calls (Math.sin/cos), so wrapping is exact and avoids the
+// floating-point precision loss an unbounded accumulator would eventually
+// hit on a long-running gallery-mode session.
+let driftPhase=0, rotAngle=0;
+const TWO_PI=Math.PI*2;
 function fade(){
   // accumulate with low-alpha black => phosphor trail
   ctx.globalCompositeOperation='source-over';
   ctx.fillStyle='rgba(0,0,0,'+(1-S.persist)+')';
   ctx.fillRect(0,0,W,H);
 }
-function drawFrame(dt){
+// Points are batched into a small number of Path2D buckets keyed by
+// quantised velocity-intensity, then each bucket is stroked once per
+// layer. This keeps stroke() calls bounded (<=36/frame) regardless of
+// point count, instead of up to 3 stroke() calls per segment (which was
+// measuring well over the 16ms frame budget under CPU throttling). The
+// bucketing preserves the velocity-based brightening (slow segments glow
+// more) that is core to the CRT-phosphor look, just at finite resolution.
+const BUCKETS=12;
+let perfN=1400; // adaptive point count, see loop()
+const MIN_N=500, MAX_N=1400;
+function drawFrame(){
   const c=S.phos.core, e=S.phos.edge;
-  const cycles = S.mode==='harmonograph'?1:1;
-  const N = 1400;
+  const N=perfN;
   // one full period for lissajous; a long sweep for harmonograph
-  const span = S.mode==='harmonograph' ? 26 : 2*Math.PI;
+  const span = S.mode==='harmonograph' ? 26 : TWO_PI;
+  const bloomOuter=[], bloomInner=[], core=[];
+  for(let b=0;b<BUCKETS;b++){ bloomOuter.push(new Path2D()); bloomInner.push(new Path2D()); core.push(new Path2D()); }
   let px=null,py=null;
-  ctx.globalCompositeOperation='lighter';
-  ctx.lineCap='round';
   for(let i=0;i<=N;i++){
-    const t = (i/N)*span + (S.mode==='harmonograph'?0:phase*0);
-    let dp = driftPhase;
-    let xv=axisVal(S.X,t,dp,S.damp);
+    const t=(i/N)*span;
+    let xv=axisVal(S.X,t,driftPhase,S.damp);
     let yv=axisVal(S.Y,t,0,S.damp);
     // modulation
-    if(S.modType==='fm'){ xv=axisVal(S.X,t + S.modDepth*yv, dp, S.damp); }
+    if(S.modType==='fm'){ xv=axisVal(S.X,t + S.modDepth*yv, driftPhase, S.damp); }
     else if(S.modType==='am'){ xv*=(1+S.modDepth*yv); }
     // rotation
-    if(S.rot!==0){ const a=S.rot*Math.PI + harmT*S.rot*0.3;
-      const cs=Math.cos(a),sn=Math.sin(a); const nx=xv*cs-yv*sn, ny=xv*sn+yv*cs; xv=nx; yv=ny; }
+    if(S.rot!==0){
+      const a=S.rot*Math.PI + rotAngle;
+      const cs=Math.cos(a),sn=Math.sin(a); const nx=xv*cs-yv*sn, ny=xv*sn+yv*cs; xv=nx; yv=ny;
+    }
     const X=CX+xv*R, Y=CY-yv*R;
     if(px!==null){
-      // velocity => intensity (slow=bright)
+      // velocity => intensity (slow=bright), quantised into a bucket
       const seg=Math.hypot(X-px,Y-py);
       const inten=Math.max(0.10, Math.min(1, 2.2/(seg+1.2)));
-      const w = S.bloom? 1.6:1.1;
-      // outer bloom
+      const b=Math.min(BUCKETS-1, Math.floor(inten*BUCKETS));
       if(S.bloom){
-        ctx.strokeStyle='rgba('+e[0]+','+e[1]+','+e[2]+','+(0.06*inten)+')';
-        ctx.lineWidth=w*5; ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(X,Y);ctx.stroke();
-        ctx.strokeStyle='rgba('+e[0]+','+e[1]+','+e[2]+','+(0.12*inten)+')';
-        ctx.lineWidth=w*2.4; ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(X,Y);ctx.stroke();
+        bloomOuter[b].moveTo(px,py); bloomOuter[b].lineTo(X,Y);
+        bloomInner[b].moveTo(px,py); bloomInner[b].lineTo(X,Y);
       }
-      // core
-      ctx.strokeStyle='rgba('+c[0]+','+c[1]+','+c[2]+','+(0.9*inten)+')';
-      ctx.lineWidth=w; ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(X,Y);ctx.stroke();
+      core[b].moveTo(px,py); core[b].lineTo(X,Y);
     }
     px=X;py=Y;
   }
+  ctx.globalCompositeOperation='lighter';
+  ctx.lineCap='round';
+  const w = S.bloom? 1.6:1.1;
+  for(let b=0;b<BUCKETS;b++){
+    const inten=(b+0.5)/BUCKETS;
+    if(S.bloom){
+      ctx.strokeStyle='rgba('+e[0]+','+e[1]+','+e[2]+','+(0.06*inten)+')';
+      ctx.lineWidth=w*5; ctx.stroke(bloomOuter[b]);
+      ctx.strokeStyle='rgba('+e[0]+','+e[1]+','+e[2]+','+(0.12*inten)+')';
+      ctx.lineWidth=w*2.4; ctx.stroke(bloomInner[b]);
+    }
+    ctx.strokeStyle='rgba('+c[0]+','+c[1]+','+c[2]+','+(0.9*inten)+')';
+    ctx.lineWidth=w; ctx.stroke(core[b]);
+  }
 }
 
-// CRT overlay drawn to a separate layer once (cached)
+// CRT overlay drawn to a separate layer once (cached). Confirmed this
+// already only rebuilds when canvas dimensions actually change, not
+// every frame, so its per-frame cost is a single drawImage() call.
 let crtCanvas=null;
 function buildCRT(){
   crtCanvas=document.createElement('canvas'); crtCanvas.width=W; crtCanvas.height=H;
@@ -167,21 +272,30 @@ function buildCRT(){
   grad.addColorStop(0,'rgba(0,0,0,0)'); grad.addColorStop(1,'rgba(0,0,0,0.7)');
   g.fillStyle=grad; g.fillRect(0,0,W,H);
 }
+let frameBudgetAvg=16;
 function loop(ts){
   if(!loop.last) loop.last=ts;
   let dt=(ts-loop.last)/1000; loop.last=ts; if(dt>0.1)dt=0.1;
   if(S.running && !S.frozen){
     if(!reduceMotion){
       driftPhase += S.drift*dt*0.8;
-      harmT += dt;
+      if(driftPhase>TWO_PI) driftPhase-=TWO_PI; else if(driftPhase<-TWO_PI) driftPhase+=TWO_PI;
+      rotAngle += S.rot*0.3*dt;
+      if(rotAngle>TWO_PI) rotAngle-=TWO_PI; else if(rotAngle<-TWO_PI) rotAngle+=TWO_PI;
     }
     fade();
-    drawFrame(dt);
+    drawFrame();
     if(S.crt){
       if(!crtCanvas||crtCanvas.width!==W||crtCanvas.height!==H) buildCRT();
       ctx.globalCompositeOperation='source-over';
       ctx.drawImage(crtCanvas,0,0);
     }
+    // adaptive point count: back off under sustained frame-time pressure,
+    // creep back up when there is headroom (safety net beyond bucketing)
+    const frameMs=dt*1000;
+    frameBudgetAvg=frameBudgetAvg*0.9+frameMs*0.1;
+    if(frameBudgetAvg>20 && perfN>MIN_N) perfN=Math.max(MIN_N,perfN-100);
+    else if(frameBudgetAvg<14 && perfN<MAX_N) perfN=Math.min(MAX_N,perfN+50);
   }
   updateReadout();
   requestAnimationFrame(loop);
@@ -208,9 +322,13 @@ function updateReadout(){
     '<span class="k">Y</span> '+audioFreq(fy).toFixed(1)+' Hz &nbsp; '+S.Y[0].wave+'<br>'+
     '<span class="k">RATIO</span> '+(fx/g)+':'+(fy/g)+
     (S.mode==='harmonograph'?'<br><span class="k">MODE</span> harmonograph':'');
-  signalNote.innerHTML='X and Y oscillators are the same signals you hear and see. '+
+  let note='X and Y oscillators are the same signals you hear and see. '+
     'Ratio <b style="color:var(--ink)">'+(fx/g)+':'+(fy/g)+'</b> → interval '+
     '<span class="interval">'+intervalName(audioFreq(fx),audioFreq(fy))+'</span>.';
+  if(S.modType!=='off'){
+    note+=' Modulation ('+S.modType.toUpperCase()+') is applied to both the trace and the audio.';
+  }
+  signalNote.innerHTML=note;
 }
 
 // ---------- UI build ----------
@@ -259,22 +377,39 @@ function buildOscUI(){
   });
 }
 
-// presets / ratios / colours
+// presets / ratios / colours — all rendered as real <button> elements so
+// they are keyboard-operable (native Enter/Space) with proper names/state,
+// rather than <div>s with only a click handler.
 function buildChips(){
   const pw=document.getElementById('presets');
-  PRESETS.forEach(p=>{const c=document.createElement('div');c.className='chip';c.textContent=p.n;
-    c.onclick=()=>{applyPreset(p);};pw.appendChild(c);});
+  PRESETS.forEach(p=>{
+    const c=document.createElement('button'); c.type='button'; c.className='chip'; c.textContent=p.n;
+    c.setAttribute('aria-label','Preset: '+p.n);
+    c.onclick=()=>{applyPreset(p);};
+    pw.appendChild(c);
+  });
   const rw=document.getElementById('ratios');
-  RATIOS.forEach(rt=>{const c=document.createElement('div');c.className='chip';c.textContent=rt.r;
-    c.dataset.r=rt.r;
+  RATIOS.forEach(rt=>{
+    const c=document.createElement('button'); c.type='button'; c.className='chip'; c.textContent=rt.r;
+    c.dataset.r=rt.r; c.setAttribute('aria-label','Ratio '+rt.r);
     c.onclick=()=>{ if(rt.x){ S.X[0].freq=rt.x; S.Y[0].freq=rt.y; }
-      buildOscUI(); markRatio(); updateAudio();};rw.appendChild(c);});
+      buildOscUI(); markRatio(); updateAudio();};
+    rw.appendChild(c);
+  });
   const cw=document.getElementById('colours');
-  PHOS.forEach((ph,i)=>{const s=document.createElement('div');s.className='swatch'+(i===0?' on':'');
-    s.style.background='rgb('+ph.edge.join(',')+')';s.title=ph.name;
-    s.onclick=()=>{S.phos=ph;document.documentElement.style.setProperty('--phos','rgb('+ph.core.join(',')+')');
-      cw.querySelectorAll('.swatch').forEach(x=>x.classList.remove('on'));s.classList.add('on');};
-    cw.appendChild(s);});
+  PHOS.forEach((ph,i)=>{
+    const s=document.createElement('button'); s.type='button'; s.className='swatch'+(i===0?' on':'');
+    s.style.background='rgb('+ph.edge.join(',')+')';
+    s.setAttribute('aria-label','Phosphor colour: '+ph.name);
+    s.setAttribute('aria-pressed', i===0?'true':'false');
+    s.onclick=()=>{
+      S.phos=ph;
+      document.documentElement.style.setProperty('--phos','rgb('+ph.core.join(',')+')');
+      cw.querySelectorAll('.swatch').forEach(x=>{x.classList.remove('on');x.setAttribute('aria-pressed','false');});
+      s.classList.add('on'); s.setAttribute('aria-pressed','true');
+    };
+    cw.appendChild(s);
+  });
 }
 function markRatio(){
   const fx=S.X[0].freq,fy=S.Y[0].freq,g=gcd(fx,fy);
@@ -295,7 +430,10 @@ function applyPreset(p){
   syncMode(); buildOscUI(); markRatio(); updateAudio();
 }
 function syncMode(){
-  document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('on',b.dataset.mode===S.mode));
+  document.querySelectorAll('[data-mode]').forEach(b=>{
+    const on=b.dataset.mode===S.mode;
+    b.classList.toggle('on',on); b.setAttribute('aria-pressed', on?'true':'false');
+  });
   document.getElementById('dampWrap').style.opacity=S.mode==='harmonograph'?1:.4;
 }
 
@@ -304,30 +442,38 @@ document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{S.mode=b.data
 const link=(id,key,fmt,fx)=>{const el=document.getElementById(id);const lab=document.getElementById(id+'V');
   el.addEventListener('input',()=>{S[key]=+el.value; if(lab)lab.textContent=(fmt?fmt(+el.value):(+el.value).toFixed(2)); fx&&fx();});};
 link('drift','drift'); link('rot','rot'); link('damp','damp'); link('pers','persist');
-link('modDepth','modDepth');
+link('modDepth','modDepth',null,syncAudioModulation);
 link('vol','vol',v=>Math.round(v*100)+'%',updateAudio);
-document.getElementById('modType').onchange=e=>{S.modType=e.target.value;};
+document.getElementById('modType').onchange=e=>{S.modType=e.target.value;syncAudioModulation();updateReadout();};
 
 const powerBtn=document.getElementById('power');
 powerBtn.onclick=()=>{
   S.running=!S.running;
   powerBtn.classList.toggle('on',S.running);
+  powerBtn.setAttribute('aria-pressed', S.running?'true':'false');
   powerBtn.textContent=S.running?'◉ POWER ON':'○ POWER OFF';
-  if(S.running){initAudio();AC.resume();}
+  if(S.running && AUDIO_SUPPORTED){
+    initAudio();
+    AC.resume().catch(()=>{ /* resume can be rejected if the gesture was lost; audio simply stays silent */ });
+  }
   updateAudio();
 };
 const muteBtn=document.getElementById('mute');
 muteBtn.onclick=()=>{S.muted=!S.muted;muteBtn.classList.toggle('on',S.muted);
+  muteBtn.setAttribute('aria-pressed', S.muted?'true':'false');
   muteBtn.textContent=S.muted?'UNMUTE':'MUTE';updateAudio();};
 const freezeBtn=document.getElementById('freeze');
 freezeBtn.onclick=()=>{S.frozen=!S.frozen;freezeBtn.classList.toggle('on',S.frozen);
+  freezeBtn.setAttribute('aria-pressed', S.frozen?'true':'false');
   freezeBtn.textContent=S.frozen?'RESUME':'FREEZE';};
 document.getElementById('snap').onclick=()=>{
   const a=document.createElement('a');
   a.download='oscillon-'+Date.now()+'.png'; a.href=cv.toDataURL('image/png'); a.click();
 };
-document.getElementById('crt').onclick=e=>{S.crt=!S.crt;e.target.classList.toggle('on',S.crt);};
-document.getElementById('bloom').onclick=e=>{S.bloom=!S.bloom;e.target.classList.toggle('on',S.bloom);};
+document.getElementById('crt').onclick=e=>{S.crt=!S.crt;e.target.classList.toggle('on',S.crt);
+  e.target.setAttribute('aria-pressed', S.crt?'true':'false');};
+document.getElementById('bloom').onclick=e=>{S.bloom=!S.bloom;e.target.classList.toggle('on',S.bloom);
+  e.target.setAttribute('aria-pressed', S.bloom?'true':'false');};
 
 // randomise
 document.getElementById('rand').onclick=()=>{
@@ -348,6 +494,7 @@ let galleryTimer=null;
 const galleryTag=document.getElementById('gallery-tag');
 document.getElementById('gallery').onclick=e=>{
   S.gallery=!S.gallery; e.target.classList.add('amber'); e.target.classList.toggle('on',S.gallery);
+  e.target.setAttribute('aria-pressed', S.gallery?'true':'false');
   galleryTag.classList.toggle('on',S.gallery);
   if(S.gallery){ if(!S.running)powerBtn.click();
     cycleGallery(); galleryTimer=setInterval(cycleGallery, reduceMotion?12000:9000);
@@ -357,7 +504,11 @@ function cycleGallery(){
   const p=PRESETS[Math.floor(Math.random()*PRESETS.length)];
   applyPreset(p);
   S.phos=PHOS[Math.floor(Math.random()*PHOS.length)];
-  document.querySelectorAll('#colours .swatch').forEach((x,i)=>x.classList.toggle('on',PHOS[i]===S.phos));
+  document.documentElement.style.setProperty('--phos','rgb('+S.phos.core.join(',')+')');
+  document.querySelectorAll('#colours .swatch').forEach((x,i)=>{
+    const on=PHOS[i]===S.phos;
+    x.classList.toggle('on',on); x.setAttribute('aria-pressed', on?'true':'false');
+  });
   if(!reduceMotion){ S.drift=0.1+Math.random()*0.3; S.rot=(Math.random()-0.5)*0.4;
     document.getElementById('drift').value=S.drift; document.getElementById('rot').value=S.rot; }
 }

@@ -3,14 +3,25 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>OSCILLON — Lissajous & Harmonograph Explorer</title>
+<title>Oscillon — Lissajous &amp; Harmonograph Explorer</title>
+<meta name="description" content="Oscillon is an interactive Lissajous and harmonograph explorer. Draw glowing phosphor curves from paired oscillators, hear the ratio as a musical interval, and export stills — in your browser, no install required.">
+<meta name="theme-color" content="#050607">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Oscillon — Lissajous &amp; Harmonograph Explorer">
+<meta property="og:description" content="An interactive CRT-style Lissajous and harmonograph toy, after Ben Laposky and Herbert W. Franke. Vanilla Canvas and Web Audio, no dependencies.">
+<meta property="og:image" content="assets/og-preview.png">
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<a class="skip-link" href="#power">Skip to controls</a>
+<noscript>
+  <div class="noscript-note">Oscillon needs JavaScript to draw and play anything. Please enable it and reload the page.</div>
+</noscript>
 <div id="app">
   <div id="stage">
     <canvas id="scope"></canvas>
-    <div id="readout"></div>
+    <div id="readout" aria-hidden="true"></div>
     <div id="gallery-tag">◆ GALLERY MODE</div>
     <div id="title">OSCILLON · after Laposky &amp; Franke</div>
   </div>
@@ -23,17 +34,18 @@
 
     <div class="sec">
       <div class="row">
-        <button class="btn primary" id="power">◉ POWER ON</button>
-        <button class="btn" id="mute">MUTE</button>
+        <button class="btn primary" id="power" aria-pressed="false">◉ POWER ON</button>
+        <button class="btn" id="mute" aria-pressed="false">MUTE</button>
       </div>
       <div class="row">
         <button class="btn" id="rand">⚄ RANDOMISE</button>
-        <button class="btn" id="freeze">FREEZE</button>
+        <button class="btn" id="freeze" aria-pressed="false">FREEZE</button>
         <button class="btn" id="snap">↓ PNG</button>
       </div>
       <div class="row">
-        <button class="btn" id="gallery">GALLERY MODE</button>
+        <button class="btn" id="gallery" aria-pressed="false">GALLERY MODE</button>
       </div>
+      <p class="note" id="audioNote" hidden>Web Audio is not available in this browser. Visuals will still work, but there will be no sound.</p>
     </div>
 
     <div class="sec">
@@ -44,8 +56,8 @@
     <div class="sec">
       <h2>Mode</h2>
       <div class="togglerow" style="margin-bottom:10px">
-        <button class="btn" data-mode="lissajous">LISSAJOUS</button>
-        <button class="btn" data-mode="harmonograph">HARMONOGRAPH</button>
+        <button class="btn" data-mode="lissajous" aria-pressed="false">LISSAJOUS</button>
+        <button class="btn" data-mode="harmonograph" aria-pressed="false">HARMONOGRAPH</button>
       </div>
       <h2>Ratio <span class="val" id="ratioVal">1 : 1</span></h2>
       <div class="chips" id="ratios"></div>
@@ -97,11 +109,11 @@
     <div class="sec">
       <h2>Phosphor</h2>
       <div class="row" style="align-items:center">
-        <div class="chips" id="colours" style="flex:1"></div>
+        <div class="chips" id="colours" role="group" aria-label="Phosphor colour"></div>
       </div>
       <div class="togglerow" style="margin-top:4px">
-        <button class="btn on" id="crt">CRT OVERLAY</button>
-        <button class="btn on" id="bloom">BLOOM</button>
+        <button class="btn on" id="crt" aria-pressed="true">CRT OVERLAY</button>
+        <button class="btn on" id="bloom" aria-pressed="true">BLOOM</button>
       </div>
     </div>
 
@@ -112,7 +124,7 @@
 
     <div class="sec">
       <h2>Master <span class="val" id="volV">60%</span></h2>
-      <input type="range" id="vol" min="0" max="1" step="0.01" value="0.6" style="width:100%">
+      <input type="range" id="vol" min="0" max="1" step="0.01" value="0.6" style="width:100%" aria-label="Master volume">
     </div>
   </div>
 </div>
