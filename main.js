@@ -50,7 +50,8 @@ const PRESETS=[
 ];
 
 // ---------- audio ----------
-let AC=null, master=null, aX=null, aY=null, aXg=null, aYg=null;
+let AC=null, master=null, aX=null, aY=null, aXg=null, aYg=null, modGain=null;
+const AX_BASE_GAIN=0.5;
 function initAudio(){
   if(AC) return;
   AC=new (window.AudioContext||window.webkitAudioContext)();
@@ -59,11 +60,33 @@ function initAudio(){
   aX=AC.createOscillator(); aXg=AC.createGain(); aX.connect(aXg); aXg.connect(merger,0,0);
   aY=AC.createOscillator(); aYg=AC.createGain(); aY.connect(aYg); aYg.connect(merger,0,1);
   merger.connect(master);
-  aXg.gain.value=0.5; aYg.gain.value=0.5;
+  aXg.gain.value=AX_BASE_GAIN; aYg.gain.value=0.5;
+  // modulator tap: aY's own direct output is unaffected by this second
+  // connection. modGain's output is routed onto whichever AudioParam the
+  // current modulation type targets (see syncAudioModulation), so the
+  // audio you hear tracks the same FM/AM the eye sees on the trace,
+  // rather than modulation being a visual-only effect.
+  modGain=AC.createGain(); modGain.gain.value=0;
+  aY.connect(modGain);
   aX.start(); aY.start();
+  syncAudioModulation();
 }
 const BASE=110; // Hz for freq index 1
 function audioFreq(idx){return BASE*idx;}
+function syncAudioModulation(){
+  if(!AC) return;
+  try{ modGain.disconnect(); }catch(e){ /* not connected yet, fine */ }
+  const now=AC.currentTime;
+  if(S.modType==='am'){
+    modGain.gain.setTargetAtTime(S.modDepth*0.4, now, 0.02);
+    modGain.connect(aXg.gain);
+  }else if(S.modType==='fm'){
+    modGain.gain.setTargetAtTime(S.modDepth*audioFreq(S.X[0].freq)*0.8, now, 0.02);
+    modGain.connect(aX.frequency);
+  }else{
+    modGain.gain.setTargetAtTime(0, now, 0.02);
+  }
+}
 function updateAudio(){
   if(!AC) return;
   const fx=audioFreq(S.X[0].freq), fy=audioFreq(S.Y[0].freq);
@@ -71,6 +94,7 @@ function updateAudio(){
   aY.frequency.setTargetAtTime(fy,AC.currentTime,0.02);
   aX.type=S.X[0].wave; aY.type=S.Y[0].wave;
   master.gain.setTargetAtTime(S.muted||!S.running?0:S.vol,AC.currentTime,0.02);
+  syncAudioModulation();
 }
 
 // ---------- waveforms ----------
@@ -216,9 +240,13 @@ function updateReadout(){
     '<span class="k">Y</span> '+audioFreq(fy).toFixed(1)+' Hz &nbsp; '+S.Y[0].wave+'<br>'+
     '<span class="k">RATIO</span> '+(fx/g)+':'+(fy/g)+
     (S.mode==='harmonograph'?'<br><span class="k">MODE</span> harmonograph':'');
-  signalNote.innerHTML='X and Y oscillators are the same signals you hear and see. '+
+  let note='X and Y oscillators are the same signals you hear and see. '+
     'Ratio <b style="color:var(--ink)">'+(fx/g)+':'+(fy/g)+'</b> → interval '+
     '<span class="interval">'+intervalName(audioFreq(fx),audioFreq(fy))+'</span>.';
+  if(S.modType!=='off'){
+    note+=' Modulation ('+S.modType.toUpperCase()+') is applied to both the trace and the audio.';
+  }
+  signalNote.innerHTML=note;
 }
 
 // ---------- UI build ----------
@@ -312,9 +340,9 @@ document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{S.mode=b.data
 const link=(id,key,fmt,fx)=>{const el=document.getElementById(id);const lab=document.getElementById(id+'V');
   el.addEventListener('input',()=>{S[key]=+el.value; if(lab)lab.textContent=(fmt?fmt(+el.value):(+el.value).toFixed(2)); fx&&fx();});};
 link('drift','drift'); link('rot','rot'); link('damp','damp'); link('pers','persist');
-link('modDepth','modDepth');
+link('modDepth','modDepth',null,syncAudioModulation);
 link('vol','vol',v=>Math.round(v*100)+'%',updateAudio);
-document.getElementById('modType').onchange=e=>{S.modType=e.target.value;};
+document.getElementById('modType').onchange=e=>{S.modType=e.target.value;syncAudioModulation();};
 
 const powerBtn=document.getElementById('power');
 powerBtn.onclick=()=>{
@@ -365,6 +393,7 @@ function cycleGallery(){
   const p=PRESETS[Math.floor(Math.random()*PRESETS.length)];
   applyPreset(p);
   S.phos=PHOS[Math.floor(Math.random()*PHOS.length)];
+  document.documentElement.style.setProperty('--phos','rgb('+S.phos.core.join(',')+')');
   document.querySelectorAll('#colours .swatch').forEach((x,i)=>x.classList.toggle('on',PHOS[i]===S.phos));
   if(!reduceMotion){ S.drift=0.1+Math.random()*0.3; S.rot=(Math.random()-0.5)*0.4;
     document.getElementById('drift').value=S.drift; document.getElementById('rot').value=S.rot; }
