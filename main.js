@@ -106,7 +106,13 @@ function resize(){
 window.addEventListener('resize',resize);
 
 // ---------- render ----------
-let phase=0, driftPhase=0, harmT=0;
+// driftPhase and rotAngle are wrapped modulo 2*PI each frame rather than
+// accumulated forever. Both only ever feed additive phase into periodic
+// trig calls (Math.sin/cos), so wrapping is exact and avoids the
+// floating-point precision loss an unbounded accumulator would eventually
+// hit on a long-running gallery-mode session.
+let driftPhase=0, rotAngle=0;
+const TWO_PI=Math.PI*2;
 function fade(){
   // accumulate with low-alpha black => phosphor trail
   ctx.globalCompositeOperation='source-over';
@@ -123,7 +129,7 @@ function drawFrame(dt){
   ctx.globalCompositeOperation='lighter';
   ctx.lineCap='round';
   for(let i=0;i<=N;i++){
-    const t = (i/N)*span + (S.mode==='harmonograph'?0:phase*0);
+    const t = (i/N)*span;
     let dp = driftPhase;
     let xv=axisVal(S.X,t,dp,S.damp);
     let yv=axisVal(S.Y,t,0,S.damp);
@@ -131,7 +137,7 @@ function drawFrame(dt){
     if(S.modType==='fm'){ xv=axisVal(S.X,t + S.modDepth*yv, dp, S.damp); }
     else if(S.modType==='am'){ xv*=(1+S.modDepth*yv); }
     // rotation
-    if(S.rot!==0){ const a=S.rot*Math.PI + harmT*S.rot*0.3;
+    if(S.rot!==0){ const a=S.rot*Math.PI + rotAngle;
       const cs=Math.cos(a),sn=Math.sin(a); const nx=xv*cs-yv*sn, ny=xv*sn+yv*cs; xv=nx; yv=ny; }
     const X=CX+xv*R, Y=CY-yv*R;
     if(px!==null){
@@ -173,7 +179,9 @@ function loop(ts){
   if(S.running && !S.frozen){
     if(!reduceMotion){
       driftPhase += S.drift*dt*0.8;
-      harmT += dt;
+      if(driftPhase>TWO_PI) driftPhase-=TWO_PI; else if(driftPhase<-TWO_PI) driftPhase+=TWO_PI;
+      rotAngle += S.rot*0.3*dt;
+      if(rotAngle>TWO_PI) rotAngle-=TWO_PI; else if(rotAngle<-TWO_PI) rotAngle+=TWO_PI;
     }
     fade();
     drawFrame(dt);
