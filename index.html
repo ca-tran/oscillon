@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>OSCILLON — Lissajous & Harmonograph Explorer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="scope"></canvas>
+    <div id="readout"></div>
+    <div id="gallery-tag">◆ GALLERY MODE</div>
+    <div id="title">OSCILLON · after Laposky &amp; Franke</div>
+  </div>
+
+  <div id="panel">
+    <div class="brand">
+      <h1>OSCIL<span>LON</span></h1>
+      <p>LISSAJOUS · HARMONOGRAPH · CRT</p>
+    </div>
+
+    <div class="sec">
+      <div class="row">
+        <button class="btn primary" id="power">◉ POWER ON</button>
+        <button class="btn" id="mute">MUTE</button>
+      </div>
+      <div class="row">
+        <button class="btn" id="rand">⚄ RANDOMISE</button>
+        <button class="btn" id="freeze">FREEZE</button>
+        <button class="btn" id="snap">↓ PNG</button>
+      </div>
+      <div class="row">
+        <button class="btn" id="gallery">GALLERY MODE</button>
+      </div>
+    </div>
+
+    <div class="sec">
+      <h2>Presets</h2>
+      <div class="chips" id="presets"></div>
+    </div>
+
+    <div class="sec">
+      <h2>Mode</h2>
+      <div class="togglerow" style="margin-bottom:10px">
+        <button class="btn" data-mode="lissajous">LISSAJOUS</button>
+        <button class="btn" data-mode="harmonograph">HARMONOGRAPH</button>
+      </div>
+      <h2>Ratio <span class="val" id="ratioVal">1 : 1</span></h2>
+      <div class="chips" id="ratios"></div>
+    </div>
+
+    <div class="sec" id="oscSection">
+      <h2>Oscillators</h2>
+      <div id="oscHost"></div>
+    </div>
+
+    <div class="sec">
+      <h2>Motion</h2>
+      <label class="field" style="margin-bottom:10px">
+        <span class="lab">PHASE DRIFT <b id="driftV">0.00</b></span>
+        <input type="range" id="drift" min="0" max="1" step="0.001" value="0">
+      </label>
+      <label class="field" style="margin-bottom:10px">
+        <span class="lab">ROTATION <b id="rotV">0.00</b></span>
+        <input type="range" id="rot" min="-1" max="1" step="0.001" value="0">
+      </label>
+      <label class="field" id="dampWrap" style="margin-bottom:10px">
+        <span class="lab">DAMPING <b id="dampV">0.20</b></span>
+        <input type="range" id="damp" min="0" max="1" step="0.001" value="0.2">
+      </label>
+      <label class="field">
+        <span class="lab">TRACE PERSIST <b id="persV">0.90</b></span>
+        <input type="range" id="pers" min="0.5" max="0.99" step="0.005" value="0.9">
+      </label>
+    </div>
+
+    <div class="sec">
+      <h2>Modulation</h2>
+      <div class="row">
+        <label class="field">
+          <span class="lab">TYPE</span>
+          <select id="modType">
+            <option value="off">Off</option>
+            <option value="fm">FM · Y→X freq</option>
+            <option value="am">AM · Y→X amp</option>
+          </select>
+        </label>
+      </div>
+      <label class="field">
+        <span class="lab">MOD DEPTH <b id="modV">0.30</b></span>
+        <input type="range" id="modDepth" min="0" max="1" step="0.005" value="0.3">
+      </label>
+    </div>
+
+    <div class="sec">
+      <h2>Phosphor</h2>
+      <div class="row" style="align-items:center">
+        <div class="chips" id="colours" style="flex:1"></div>
+      </div>
+      <div class="togglerow" style="margin-top:4px">
+        <button class="btn on" id="crt">CRT OVERLAY</button>
+        <button class="btn on" id="bloom">BLOOM</button>
+      </div>
+    </div>
+
+    <div class="sec">
+      <h2>Signal</h2>
+      <div class="note" id="signalNote"></div>
+    </div>
+
+    <div class="sec">
+      <h2>Master <span class="val" id="volV">60%</span></h2>
+      <input type="range" id="vol" min="0" max="1" step="0.01" value="0.6" style="width:100%">
+    </div>
+  </div>
+</div>
+
+<script src="main.js"></script>
+</body>
+</html>
