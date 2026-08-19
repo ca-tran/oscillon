@@ -14,7 +14,7 @@ cross-modulation between the axes, and drift or rotate the pattern over
 time. Presets and a randomiser get you started, gallery mode cycles through
 looks on its own, and PNG export saves a still of whatever is on screen.
 
-**Live:** _to be added after deployment_
+**Live:** https://ca-tran.github.io/oscillon/
 
 ## Running it locally
 
