@@ -1,4 +1,34 @@
 "use strict";
+/* ==========================================================================
+   PHASE 1 AUDIT SUMMARY — full reasoning for each item lives in the git
+   history (one commit per concern); this is the short version.
+
+   Correctness: removed dead `phase` variable; wrapped the previously
+   unbounded harmT/driftPhase accumulators (renamed rotAngle/driftPhase)
+   modulo 2*PI to avoid long-session float precision loss; traced the
+   FM/AM maths by hand (AM correct, FM is phase modulation which is the
+   right approximation here) and fixed the real bug, which was that
+   modulation never reached the audio oscillators, only the visual trace;
+   fixed resize/orientation causing a hard visual cut; caught the
+   AudioContext.resume() promise; confirmed mute/freeze/power combinations
+   cannot reach a broken state; found and fixed a gallery-mode bug where
+   the phosphor CSS variable fell out of sync with the highlighted swatch.
+
+   Performance: replaced up to ~4200 stroke() calls/frame with a bucketed
+   Path2D batch (<=36 stroke() calls/frame), preserving the velocity-based
+   phosphor brightening; confirmed the CRT overlay only rebuilds on resize
+   and that gallery mode does not leak memory over an extended session.
+
+   Accessibility (WCAG AA): rebuilt swatches and preset/ratio chips as
+   real buttons with aria-label; added aria-pressed to every toggle;
+   added a global focus-visible ring; fixed --dim contrast from ~4.4:1 to
+   5.3:1+ against the panel gradient; confirmed reduced-motion handling
+   and tab order were already correct; added a skip link.
+
+   General polish: meta description, Open Graph tags, SVG favicon,
+   noscript message, and a graceful fallback when Web Audio is
+   unsupported (visuals still work, audio controls disable with a note).
+   ========================================================================== */
 (function(){
 const cv=document.getElementById('scope'), ctx=cv.getContext('2d',{alpha:false});
 const stage=document.getElementById('stage');
@@ -8,6 +38,14 @@ let DPR=Math.min(window.devicePixelRatio||1,2), W=0,H=0, CX=0,CY=0, R=0;
 const RM = window.matchMedia('(prefers-reduced-motion: reduce)');
 let reduceMotion = RM.matches;
 RM.addEventListener?.('change', e=>{reduceMotion=e.matches;});
+
+// --- feature detection ---
+const AUDIO_SUPPORTED = !!(window.AudioContext||window.webkitAudioContext);
+if(!AUDIO_SUPPORTED){
+  document.getElementById('audioNote').hidden=false;
+  document.getElementById('mute').disabled=true;
+  document.getElementById('vol').disabled=true;
+}
 
 // ---------- state ----------
 const WAVES=['sine','triangle','square','sawtooth'];
@@ -53,7 +91,7 @@ const PRESETS=[
 let AC=null, master=null, aX=null, aY=null, aXg=null, aYg=null, modGain=null;
 const AX_BASE_GAIN=0.5;
 function initAudio(){
-  if(AC) return;
+  if(AC || !AUDIO_SUPPORTED) return;
   AC=new (window.AudioContext||window.webkitAudioContext)();
   master=AC.createGain(); master.gain.value=S.muted?0:S.vol; master.connect(AC.destination);
   const merger=AC.createChannelMerger(2);
@@ -414,7 +452,7 @@ powerBtn.onclick=()=>{
   powerBtn.classList.toggle('on',S.running);
   powerBtn.setAttribute('aria-pressed', S.running?'true':'false');
   powerBtn.textContent=S.running?'◉ POWER ON':'○ POWER OFF';
-  if(S.running){
+  if(S.running && AUDIO_SUPPORTED){
     initAudio();
     AC.resume().catch(()=>{ /* resume can be rejected if the gesture was lost; audio simply stays silent */ });
   }
