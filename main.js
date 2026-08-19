@@ -159,48 +159,69 @@ function fade(){
   ctx.fillStyle='rgba(0,0,0,'+(1-S.persist)+')';
   ctx.fillRect(0,0,W,H);
 }
-function drawFrame(dt){
+// Points are batched into a small number of Path2D buckets keyed by
+// quantised velocity-intensity, then each bucket is stroked once per
+// layer. This keeps stroke() calls bounded (<=36/frame) regardless of
+// point count, instead of up to 3 stroke() calls per segment (which was
+// measuring well over the 16ms frame budget under CPU throttling). The
+// bucketing preserves the velocity-based brightening (slow segments glow
+// more) that is core to the CRT-phosphor look, just at finite resolution.
+const BUCKETS=12;
+let perfN=1400; // adaptive point count, see loop()
+const MIN_N=500, MAX_N=1400;
+function drawFrame(){
   const c=S.phos.core, e=S.phos.edge;
-  const cycles = S.mode==='harmonograph'?1:1;
-  const N = 1400;
+  const N=perfN;
   // one full period for lissajous; a long sweep for harmonograph
-  const span = S.mode==='harmonograph' ? 26 : 2*Math.PI;
+  const span = S.mode==='harmonograph' ? 26 : TWO_PI;
+  const bloomOuter=[], bloomInner=[], core=[];
+  for(let b=0;b<BUCKETS;b++){ bloomOuter.push(new Path2D()); bloomInner.push(new Path2D()); core.push(new Path2D()); }
   let px=null,py=null;
-  ctx.globalCompositeOperation='lighter';
-  ctx.lineCap='round';
   for(let i=0;i<=N;i++){
-    const t = (i/N)*span;
-    let dp = driftPhase;
-    let xv=axisVal(S.X,t,dp,S.damp);
+    const t=(i/N)*span;
+    let xv=axisVal(S.X,t,driftPhase,S.damp);
     let yv=axisVal(S.Y,t,0,S.damp);
     // modulation
-    if(S.modType==='fm'){ xv=axisVal(S.X,t + S.modDepth*yv, dp, S.damp); }
+    if(S.modType==='fm'){ xv=axisVal(S.X,t + S.modDepth*yv, driftPhase, S.damp); }
     else if(S.modType==='am'){ xv*=(1+S.modDepth*yv); }
     // rotation
-    if(S.rot!==0){ const a=S.rot*Math.PI + rotAngle;
-      const cs=Math.cos(a),sn=Math.sin(a); const nx=xv*cs-yv*sn, ny=xv*sn+yv*cs; xv=nx; yv=ny; }
+    if(S.rot!==0){
+      const a=S.rot*Math.PI + rotAngle;
+      const cs=Math.cos(a),sn=Math.sin(a); const nx=xv*cs-yv*sn, ny=xv*sn+yv*cs; xv=nx; yv=ny;
+    }
     const X=CX+xv*R, Y=CY-yv*R;
     if(px!==null){
-      // velocity => intensity (slow=bright)
+      // velocity => intensity (slow=bright), quantised into a bucket
       const seg=Math.hypot(X-px,Y-py);
       const inten=Math.max(0.10, Math.min(1, 2.2/(seg+1.2)));
-      const w = S.bloom? 1.6:1.1;
-      // outer bloom
+      const b=Math.min(BUCKETS-1, Math.floor(inten*BUCKETS));
       if(S.bloom){
-        ctx.strokeStyle='rgba('+e[0]+','+e[1]+','+e[2]+','+(0.06*inten)+')';
-        ctx.lineWidth=w*5; ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(X,Y);ctx.stroke();
-        ctx.strokeStyle='rgba('+e[0]+','+e[1]+','+e[2]+','+(0.12*inten)+')';
-        ctx.lineWidth=w*2.4; ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(X,Y);ctx.stroke();
+        bloomOuter[b].moveTo(px,py); bloomOuter[b].lineTo(X,Y);
+        bloomInner[b].moveTo(px,py); bloomInner[b].lineTo(X,Y);
       }
-      // core
-      ctx.strokeStyle='rgba('+c[0]+','+c[1]+','+c[2]+','+(0.9*inten)+')';
-      ctx.lineWidth=w; ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(X,Y);ctx.stroke();
+      core[b].moveTo(px,py); core[b].lineTo(X,Y);
     }
     px=X;py=Y;
   }
+  ctx.globalCompositeOperation='lighter';
+  ctx.lineCap='round';
+  const w = S.bloom? 1.6:1.1;
+  for(let b=0;b<BUCKETS;b++){
+    const inten=(b+0.5)/BUCKETS;
+    if(S.bloom){
+      ctx.strokeStyle='rgba('+e[0]+','+e[1]+','+e[2]+','+(0.06*inten)+')';
+      ctx.lineWidth=w*5; ctx.stroke(bloomOuter[b]);
+      ctx.strokeStyle='rgba('+e[0]+','+e[1]+','+e[2]+','+(0.12*inten)+')';
+      ctx.lineWidth=w*2.4; ctx.stroke(bloomInner[b]);
+    }
+    ctx.strokeStyle='rgba('+c[0]+','+c[1]+','+c[2]+','+(0.9*inten)+')';
+    ctx.lineWidth=w; ctx.stroke(core[b]);
+  }
 }
 
-// CRT overlay drawn to a separate layer once (cached)
+// CRT overlay drawn to a separate layer once (cached). Confirmed this
+// already only rebuilds when canvas dimensions actually change, not
+// every frame, so its per-frame cost is a single drawImage() call.
 let crtCanvas=null;
 function buildCRT(){
   crtCanvas=document.createElement('canvas'); crtCanvas.width=W; crtCanvas.height=H;
@@ -213,6 +234,7 @@ function buildCRT(){
   grad.addColorStop(0,'rgba(0,0,0,0)'); grad.addColorStop(1,'rgba(0,0,0,0.7)');
   g.fillStyle=grad; g.fillRect(0,0,W,H);
 }
+let frameBudgetAvg=16;
 function loop(ts){
   if(!loop.last) loop.last=ts;
   let dt=(ts-loop.last)/1000; loop.last=ts; if(dt>0.1)dt=0.1;
@@ -224,12 +246,18 @@ function loop(ts){
       if(rotAngle>TWO_PI) rotAngle-=TWO_PI; else if(rotAngle<-TWO_PI) rotAngle+=TWO_PI;
     }
     fade();
-    drawFrame(dt);
+    drawFrame();
     if(S.crt){
       if(!crtCanvas||crtCanvas.width!==W||crtCanvas.height!==H) buildCRT();
       ctx.globalCompositeOperation='source-over';
       ctx.drawImage(crtCanvas,0,0);
     }
+    // adaptive point count: back off under sustained frame-time pressure,
+    // creep back up when there is headroom (safety net beyond bucketing)
+    const frameMs=dt*1000;
+    frameBudgetAvg=frameBudgetAvg*0.9+frameMs*0.1;
+    if(frameBudgetAvg>20 && perfN>MIN_N) perfN=Math.max(MIN_N,perfN-100);
+    else if(frameBudgetAvg<14 && perfN<MAX_N) perfN=Math.min(MAX_N,perfN+50);
   }
   updateReadout();
   requestAnimationFrame(loop);
