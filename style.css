@@ -1,6 +1,6 @@
 :root{
   --panel:#14161a; --panel2:#1b1e24; --rail:#0a0b0d; --edge:#2b3038;
-  --ink:#c7cdd6; --dim:#7c848f; --accent:#38e08a; --amber:#ffb54d;
+  --ink:#c7cdd6; --dim:#8a92a0; --accent:#38e08a; --amber:#ffb54d;
   --knob:#22262d; --track:#0d0f12;
   --phos:#7dffb0;
   --mono:"SF Mono",ui-monospace,"Roboto Mono",Menlo,Consolas,monospace;
@@ -10,6 +10,16 @@ html,body{margin:0;height:100%;background:#050607;color:var(--ink);
   font-family:var(--mono);font-size:13px;overflow:hidden;overscroll-behavior:none}
 button{font:inherit;color:inherit;cursor:pointer;appearance:none;-webkit-appearance:none;
   background:transparent;border:0;padding:0;margin:0}
+
+/* focus states — an amber outline reads as instrument-panel indicator light,
+   not a generic browser default, so it keeps the aesthetic intact */
+:focus{outline:none}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:3px}
+
+.skip-link{position:absolute;left:-999px;top:0;background:var(--amber);color:#1a1200;
+  padding:8px 14px;z-index:100;font-family:var(--mono);font-size:12px;letter-spacing:.05em;
+  text-decoration:none;border-radius:0 0 6px 0}
+.skip-link:focus{left:0}
 #app{display:grid;grid-template-columns:1fr 340px;height:100dvh}
 /* ---- screen ---- */
 #stage{position:relative;background:radial-gradient(120% 120% at 50% 40%,#0c110d,#000 80%);
