@@ -127,7 +127,23 @@ function resize(){
   CX=W/2; CY=H/2; R=Math.min(W,H)*0.40;
   ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
 }
-window.addEventListener('resize',resize);
+// Debounced resize with a brief fade, so an orientation change (or a
+// browser window drag) does not read as a hard cut of the trace. Canvas
+// dimension changes always clear pixel content per spec, so the fade is
+// camouflage for an unavoidable clear rather than an attempt to prevent it.
+let resizeDebounce=null, resizeRAF=null;
+function scheduleResize(){
+  clearTimeout(resizeDebounce);
+  resizeDebounce=setTimeout(()=>{
+    cv.style.opacity='0';
+    resizeRAF=requestAnimationFrame(()=>{
+      resize();
+      requestAnimationFrame(()=>{ cv.style.opacity='1'; });
+    });
+  },80);
+}
+window.addEventListener('resize',scheduleResize);
+window.addEventListener('orientationchange',scheduleResize);
 
 // ---------- render ----------
 // driftPhase and rotAngle are wrapped modulo 2*PI each frame rather than
@@ -349,7 +365,10 @@ powerBtn.onclick=()=>{
   S.running=!S.running;
   powerBtn.classList.toggle('on',S.running);
   powerBtn.textContent=S.running?'◉ POWER ON':'○ POWER OFF';
-  if(S.running){initAudio();AC.resume();}
+  if(S.running){
+    initAudio();
+    AC.resume().catch(()=>{ /* resume can be rejected if the gesture was lost; audio simply stays silent */ });
+  }
   updateAudio();
 };
 const muteBtn=document.getElementById('mute');
